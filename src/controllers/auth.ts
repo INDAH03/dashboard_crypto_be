@@ -61,9 +61,42 @@ console.log("Password hash DB:", user.password);
   }
 };
 
-export const getProfile = (req: Request, res: Response) => {
-  res.json({
-    message: "Data profil berhasil diambil",
-    user: (req as any).user,
-  });
+export const getProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "name", "email"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
 };
+
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id; 
+    const { name, email, password } = req.body;
+
+    const updateData: any = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (password) updateData.password = await bcrypt.hash(password, 10);
+
+    const [updated] = await User.update(updateData, { where: { id: userId } });
+
+    if (!updated) {
+      return res.status(404).json({ message: "User tidak ditemukan" });
+    }
+
+    res.json({ message: "Profil berhasil diupdate" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
