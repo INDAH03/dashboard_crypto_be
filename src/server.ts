@@ -3,6 +3,7 @@ import "dotenv/config";
 import dotenv from "dotenv";
 import { sequelize } from "./config/database";
 import "./models/User";
+import "./models/Order";
 
 dotenv.config();
 

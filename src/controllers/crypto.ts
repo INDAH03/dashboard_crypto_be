@@ -3,7 +3,15 @@ import bcrypt from "bcrypt";
 import axios from "axios";
 import dotenv from "dotenv";
 import User from "../models/User";
+import { Coin, CoinChart, NewsArticle } from "../types/crypto";
+import Order from "../models/Order";
 dotenv.config();
+
+interface UpdateProfileBody {
+  name?: string;
+  email?: string;
+  password?: string;
+}
 
 export const getPrices = async (req: Request, res: Response) => {
   try {
@@ -26,19 +34,6 @@ export const getPrices = async (req: Request, res: Response) => {
   }
 };
 
-// export const getCoinDetail = async (req: Request, res: Response) => {
-//   try {
-//     const { id } = req.params;
-//     const url = `https://api.coingecko.com/api/v3/coins/${id}`;
-
-//     const { data } = await axios.get(url);
-
-//     res.json(data);
-//   } catch (error) {
-//     console.error("Error fetching coin detail:", error);
-//     res.status(500).json({ error: "Failed to fetch coin detail" });
-//   }
-// };
 
 export const getCoinDetail = async (req: Request, res: Response) => {
   const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -83,8 +78,7 @@ export const getCoinDetail = async (req: Request, res: Response) => {
 
 export const getTopCoins = async (req: Request, res: Response) => {
   try {
-
-    const { data: coins } = await axios.get(
+    const { data: coins } = await axios.get<Coin[]>(
       "https://api.coingecko.com/api/v3/coins/markets",
       {
         params: {
@@ -98,12 +92,12 @@ export const getTopCoins = async (req: Request, res: Response) => {
 
     const charts: Record<string, number[]> = {};
     await Promise.all(
-      coins.map(async (coin: any) => {
-        const { data } = await axios.get(
+      coins.map(async (coin) => {
+        const { data } = await axios.get<CoinChart>(
           `https://api.coingecko.com/api/v3/coins/${coin.id}/market_chart`,
           { params: { vs_currency: "usd", days: 7, interval: "daily" } }
         );
-        charts[coin.id] = data.prices.map((p: number[]) => p[1]);
+        charts[coin.id] = data.prices.map((p) => p[1]);
       })
     );
 
@@ -118,20 +112,25 @@ export const getCryptoNews = async (req: Request, res: Response) => {
   try {
     const { page = 1, pageSize = 6 } = req.query;
     const apiKey = process.env.NEWS_API_KEY;
-if (!apiKey) {
-  return res.status(500).json({ error: "Missing NEWS_API_KEY in environment variables" });
-}
 
-    const response = await axios.get("https://newsapi.org/v2/everything", {
-      params: {
-        q: "cryptocurrency",
-        language: "en",
-        page,
-        pageSize,
-        apiKey
+    if (!apiKey) {
+      return res.status(500).json({ error: "Missing NEWS_API_KEY in environment variables" });
+    }
+
+    const response = await axios.get<{ articles: any[]; totalResults: number }>(
+      "https://newsapi.org/v2/everything",
+      {
+        params: {
+          q: "cryptocurrency",
+          language: "en",
+          page,
+          pageSize,
+          apiKey
+        }
       }
-    });
-    const articles = response.data.articles.map((item: any) => ({
+    );
+
+    const articles: NewsArticle[] = response.data.articles.map((item) => ({
       title: item.title,
       description: item.description,
       url: item.url,
@@ -149,88 +148,39 @@ if (!apiKey) {
   }
 };
 
-export const UpdateProfile = async (req: Request, res: Response) => {
+export const updateProfile = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { name, email, password } = req.body;
+    const userId = (req as any).user.id;
+    const { password, ...rest } = req.body;
+    const updateData: Partial<UpdateProfileBody> = {};
+    Object.entries(rest).forEach(([key, value]) => {
+      if (value !== undefined) {
+        (updateData as any)[key] = value;
+      }
+    });
 
-    const updateData: Partial<{ name: string; email: string; password: string }> = { name, email };
-
-    if (password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      updateData.password = hashedPassword;
+    if (password !== undefined) {
+      updateData.password = await bcrypt.hash(password, 10);
     }
 
-    const [updated] = await User.update(updateData, { where: { id } });
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    const [updated] = await User.update(updateData, { where: { id: userId } });
 
     if (!updated) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json({ message: "User updated successfully" });
-  } catch (error: any) {
-    res.status(500).json({ message: "Error updating user", error: error.message });
+    return res.json({ message: "Profile updated successfully" });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return res
+        .status(500)
+        .json({ message: "Error updating profile", error: error.message });
+    }
+    return res.status(500).json({ message: "Unknown error" });
   }
 };
 
-
-// export const getCryptoNews = async (req: Request, res: Response) => {
-//   try {
-//     const keyword = (req.query.q as string) || "crypto";
-//     const page = Number(req.query.page) || 1;
-//     const pageSize = Number(req.query.pageSize) || 10;
-//     const apiKey = process.env.NEWS_API_KEY as string;
-
-//     const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(
-//       keyword
-//     )}&language=en&sortBy=publishedAt&page=${page}&pageSize=${pageSize}&apiKey=${apiKey}`;
-
-//     const { data } = await axios.get(url);
-
-//     res.json({
-//       totalResults: data.totalResults,
-//       articles: data.articles.map((item: any) => ({
-//         title: item.title,
-//         description: item.description,
-//         url: item.url,
-//         urlToImage: item.urlToImage,
-//         publishedAt: item.publishedAt,
-//         source: item.source.name,
-//       })),
-//     });
-//   } catch (error) {
-//     console.error("Error fetching crypto news:", error);
-//     res.status(500).json({ error: "Failed to fetch crypto news" });
-//   }
-// };
-
-// export const getCryptoNews = async (req: Request, res: Response) => {
-//   try {
-//     const keyword = (req.query.q as string) || "crypto"; 
-//     const apiKey = process.env.NEWS_API_KEY as string;
-
-//     if (!apiKey) {
-//       return res.status(500).json({ error: "Missing NEWS_API_KEY in environment" });
-//     }
-
-//     const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(
-//       keyword
-//     )}&language=en&sortBy=publishedAt&apiKey=${apiKey}`;
-
-//     const { data } = await axios.get(url);
-
-//     const articles = data.articles.map((item: any) => ({
-//       title: item.title,
-//       description: item.description,
-//       url: item.url,
-//       urlToImage: item.urlToImage,
-//       publishedAt: item.publishedAt,
-//       source: item.source.name,
-//     }));
-
-//     res.json({ totalResults: data.totalResults, articles });
-//   } catch (error) {
-//     console.error("Error fetching crypto news:", error);
-//     res.status(500).json({ error: "Failed to fetch crypto news" });
-//   }
-// };
